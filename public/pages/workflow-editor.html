@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workflow Editor</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="main-content">
+  <header class="topbar">
+    <div style="display:flex;align-items:center;gap:12px">
+      <a href="/" class="btn btn-ghost btn-sm">← Back</a>
+      <span class="topbar-title" id="page-title">New Workflow</span>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-outline btn-sm" onclick="history.back()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveWorkflow()">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+        Save Workflow
+      </button>
+    </div>
+  </header>
+
+  <div class="page-body">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start" id="editor-grid">
+
+      <!-- LEFT: Workflow Details + Schema -->
+      <div>
+        <!-- Workflow Info Card -->
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-header">
+            <span class="card-title">Workflow Details</span>
+            <span id="version-badge" style="font-size:0.78rem;color:var(--text-muted)"></span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Workflow Name <span class="required">*</span></label>
+            <input type="text" class="form-control" id="wf-name" placeholder="e.g. Expense Approval">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea class="form-control" id="wf-desc" rows="2" placeholder="Optional description..."></textarea>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" style="display:flex;align-items:center;gap:8px">
+              <input type="checkbox" id="wf-active" checked style="width:16px;height:16px;accent-color:var(--primary)">
+              Active Workflow
+            </label>
+          </div>
+        </div>
+
+        <!-- Input Schema Card -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Input Schema</span>
+            <button class="btn btn-outline btn-sm" onclick="addSchemaField()">+ Add Field</button>
+          </div>
+          <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:14px">Define the fields required when executing this workflow.</p>
+
+          <div style="display:grid;grid-template-columns:1fr 100px 90px 80px auto;gap:6px;margin-bottom:8px">
+            <span style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Field Name</span>
+            <span style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Type</span>
+            <span style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Required</span>
+            <span style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Values</span>
+            <span></span>
+          </div>
+
+          <div id="schema-fields"></div>
+
+          <div id="schema-empty" style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.85rem">
+            No fields defined yet. Click "+ Add Field" to start.
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Steps -->
+      <div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Steps</span>
+            <button class="btn btn-primary btn-sm" onclick="openAddStepModal()" id="add-step-btn" disabled>+ Add Step</button>
+          </div>
+          <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:16px" id="steps-hint">
+            Save the workflow first to add steps.
+          </p>
+
+          <div id="steps-list">
+            <div class="empty-state" style="padding:30px">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 6h16M4 12h8M4 18h8"/></svg>
+              <h4>No steps yet</h4>
+              <p>Add steps to define your workflow logic</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Step Modal -->
+<div class="modal-overlay" id="step-modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title" id="step-modal-title">Add Step</span>
+      <button class="btn btn-ghost btn-icon" onclick="closeModal('step-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="step-edit-id">
+      <div class="form-group">
+        <label class="form-label">Step Name <span class="required">*</span></label>
+        <input type="text" class="form-control" id="step-name" placeholder="e.g. Manager Approval">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Step Type <span class="required">*</span></label>
+        <select class="form-control" id="step-type">
+          <option value="task">⚙ Task</option>
+          <option value="approval">✅ Approval</option>
+          <option value="notification">🔔 Notification</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Assignee Email</label>
+        <input type="text" class="form-control" id="step-assignee" placeholder="e.g. manager@company.com">
+        <div class="form-hint">For approval/notification steps</div>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Instructions / Notes</label>
+        <textarea class="form-control" id="step-instructions" rows="2" placeholder="Optional instructions..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('step-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveStep()">Save Step</button>
+    </div>
+  </div>
+</div>
+
+<!-- Step Rules Modal -->
+<div class="modal-overlay" id="rules-modal" style="align-items:flex-start;padding:20px">
+  <div class="modal-box" style="max-width:780px;margin:auto">
+    <div class="modal-header">
+      <div>
+        <span class="modal-title">Rules for: <span id="rules-step-name" style="color:var(--primary)"></span></span>
+        <div style="font-size:0.78rem;color:var(--text-muted);margin-top:2px">Rules are evaluated by priority (1 = highest). First match wins.</div>
+      </div>
+      <button class="btn btn-ghost btn-icon" onclick="closeModal('rules-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:0.82rem;color:var(--text-muted)">
+          Supported: <code>==</code> <code>!=</code> <code>&lt;</code> <code>&gt;</code> <code>&amp;&amp;</code> <code>||</code> <code>contains()</code> <code>startsWith()</code>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="openAddRuleForm()">+ Add Rule</button>
+      </div>
+
+      <div id="rules-list-area"></div>
+
+      <!-- Add/Edit Rule Form -->
+      <div id="rule-form-area" style="display:none;border:1.5px solid var(--primary);border-radius:10px;padding:16px;margin-top:12px;background:#f8fafc">
+        <div style="font-weight:600;font-size:0.88rem;margin-bottom:12px" id="rule-form-title">Add Rule</div>
+        <input type="hidden" id="rule-edit-id">
+        <div style="display:grid;grid-template-columns:80px 1fr 1fr;gap:10px;margin-bottom:10px">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Priority</label>
+            <input type="number" class="form-control" id="rule-priority" min="1" value="1">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Condition <span class="required">*</span></label>
+            <input type="text" class="form-control" id="rule-condition" placeholder="amount > 100 && country == 'US'" style="font-family:monospace;font-size:0.82rem">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Next Step</label>
+            <select class="form-control" id="rule-next-step">
+              <option value="">— End Workflow —</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-outline btn-sm" onclick="closeRuleForm()">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="saveRule()">Save Rule</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Step Confirm -->
+<div class="modal-overlay" id="del-step-modal">
+  <div class="modal-box" style="max-width:420px">
+    <div class="modal-header">
+      <span class="modal-title">Delete Step</span>
+      <button class="btn btn-ghost btn-icon" onclick="closeModal('del-step-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p>Delete step <strong id="del-step-name"></strong>? All its rules will also be deleted.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('del-step-modal')">Cancel</button>
+      <button class="btn btn-danger" id="confirm-del-step">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/app.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>
+  // ---- State ----
+  let workflowId = null;
+  let workflowData = null;
+  let steps = [];
+  let schemaFields = [];
+  let rulesStepId = null;
+  let rulesStepName = '';
+  let allSteps = [];
+  let delStepId = null;
+  let editRuleId = null;
+
+  // ---- Init ----
+  document.addEventListener('DOMContentLoaded', async () => {
+    const path = window.location.pathname;
+    const match = path.match(/\/workflows\/([^/]+)\/edit/);
+    if (match) {
+      workflowId = match[1];
+      await loadWorkflow();
+    } else {
+      document.getElementById('page-title').textContent = 'New Workflow';
+    }
+  });
+
+  async function loadWorkflow() {
+    try {
+      const res = await API.get(`/workflows/${workflowId}`);
+      workflowData = res.data;
+      document.getElementById('page-title').textContent = `Edit: ${workflowData.name}`;
+      document.getElementById('wf-name').value = workflowData.name;
+      document.getElementById('wf-desc').value = workflowData.description || '';
+      document.getElementById('wf-active').checked = workflowData.is_active;
+      document.getElementById('version-badge').textContent = `v${workflowData.version}`;
+
+      // Load schema
+      const schema = workflowData.input_schema || {};
+      schemaFields = Object.entries(schema).map(([key, val]) => ({
+        name: key,
+        type: val.type || 'string',
+        required: val.required || false,
+        allowed_values: (val.allowed_values || []).join(',')
+      }));
+      renderSchemaFields();
+
+      // Enable steps
+      document.getElementById('add-step-btn').disabled = false;
+      document.getElementById('steps-hint').textContent = 'Add and manage steps for this workflow.';
+
+      steps = workflowData.steps || [];
+      allSteps = [...steps];
+      renderSteps();
+    } catch(e) {
+      showToast('Failed to load workflow: ' + e.message, 'error');
+    }
+  }
+
+  // ---- Schema ----
+  function addSchemaField() {
+    schemaFields.push({ name: '', type: 'string', required: false, allowed_values: '' });
+    renderSchemaFields();
+  }
+
+  function removeSchemaField(i) {
+    schemaFields.splice(i, 1);
+    renderSchemaFields();
+  }
+
+  function renderSchemaFields() {
+    const container = document.getElementById('schema-fields');
+    const empty = document.getElementById('schema-empty');
+    if (schemaFields.length === 0) {
+      container.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+    container.innerHTML = schemaFields.map((f, i) => `
+      <div style="display:grid;grid-template-columns:1fr 100px 90px 80px auto;gap:6px;margin-bottom:8px;align-items:center">
+        <input type="text" class="form-control" style="font-size:0.82rem;padding:6px 10px" value="${f.name}"
+          placeholder="field_name" oninput="schemaFields[${i}].name=this.value">
+        <select class="form-control" style="font-size:0.82rem;padding:6px 8px" onchange="schemaFields[${i}].type=this.value">
+          <option value="string" ${f.type==='string'?'selected':''}>string</option>
+          <option value="number" ${f.type==='number'?'selected':''}>number</option>
+          <option value="boolean" ${f.type==='boolean'?'selected':''}>boolean</option>
+        </select>
+        <div style="text-align:center">
+          <input type="checkbox" ${f.required?'checked':''} onchange="schemaFields[${i}].required=this.checked"
+            style="width:16px;height:16px;accent-color:var(--primary)">
+        </div>
+        <input type="text" class="form-control" style="font-size:0.75rem;padding:6px 8px" value="${f.allowed_values}"
+          placeholder="A,B,C" oninput="schemaFields[${i}].allowed_values=this.value"
+          title="Comma-separated allowed values">
+        <button class="btn btn-ghost btn-sm btn-icon" onclick="removeSchemaField(${i})" style="color:var(--danger)">✕</button>
+      </div>
+    `).join('');
+  }
+
+  function buildInputSchema() {
+    const schema = {};
+    schemaFields.forEach(f => {
+      if (!f.name.trim()) return;
+      const entry = { type: f.type, required: f.required };
+      if (f.allowed_values.trim()) {
+        entry.allowed_values = f.allowed_values.split(',').map(v => v.trim()).filter(Boolean);
+      }
+      schema[f.name.trim()] = entry;
+    });
+    return schema;
+  }
+
+  // ---- Save Workflow ----
+  async function saveWorkflow() {
+    const name = document.getElementById('wf-name').value.trim();
+    if (!name) { showToast('Workflow name is required', 'error'); return; }
+
+    const payload = {
+      name,
+      description: document.getElementById('wf-desc').value.trim(),
+      is_active: document.getElementById('wf-active').checked,
+      input_schema: buildInputSchema()
+    };
+
+    try {
+      let res;
+      if (workflowId) {
+        res = await API.put(`/workflows/${workflowId}`, payload);
+        showToast('Workflow updated (v' + res.data.version + ')', 'success');
+        workflowData = res.data;
+        document.getElementById('version-badge').textContent = `v${res.data.version}`;
+      } else {
+        res = await API.post('/workflows', payload);
+        workflowId = res.data._id;
+        showToast('Workflow created!', 'success');
+        history.replaceState({}, '', `/workflows/${workflowId}/edit`);
+        document.getElementById('page-title').textContent = `Edit: ${res.data.name}`;
+        document.getElementById('version-badge').textContent = `v${res.data.version}`;
+        document.getElementById('add-step-btn').disabled = false;
+        document.getElementById('steps-hint').textContent = 'Add and manage steps for this workflow.';
+      }
+    } catch(e) {
+      showToast('Save failed: ' + e.message, 'error');
+    }
+  }
+
+  // ---- Steps ----
+  function renderSteps() {
+    const container = document.getElementById('steps-list');
+    if (!steps.length) {
+      container.innerHTML = `<div class="empty-state" style="padding:30px">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 6h16M4 12h8M4 18h8"/></svg>
+        <h4>No steps yet</h4><p>Add steps to define your workflow logic</p>
+      </div>`;
+      return;
+    }
+    container.innerHTML = steps.map((step, i) => `
+      <div class="step-card">
+        <div class="step-card-header">
+          <div style="display:flex;align-items:center;gap:10px;flex:1">
+            <span class="step-order-badge">${step.order || i+1}</span>
+            <div>
+              <div style="font-weight:600;font-size:0.9rem">${step.name}</div>
+              <div style="margin-top:3px">${typeBadge(step.step_type)}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-outline btn-sm" onclick="openRulesModal('${step._id}','${step.name.replace(/'/g,"\\'")}')">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              Rules (${step.rules ? step.rules.length : 0})
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="openEditStep('${step._id}')">✏</button>
+            <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="promptDelStep('${step._id}','${step.name.replace(/'/g,"\\'")}')">🗑</button>
+          </div>
+        </div>
+        ${step.metadata && (step.metadata.assignee_email || step.metadata.instructions) ? `
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:0.8rem;color:var(--text-muted)">
+          ${step.metadata.assignee_email ? `📧 ${step.metadata.assignee_email}` : ''}
+          ${step.metadata.instructions ? `<div style="margin-top:4px">📝 ${step.metadata.instructions}</div>` : ''}
+        </div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  function openAddStepModal() {
+    if (!workflowId) { showToast('Save the workflow first', 'error'); return; }
+    document.getElementById('step-edit-id').value = '';
+    document.getElementById('step-name').value = '';
+    document.getElementById('step-type').value = 'task';
+    document.getElementById('step-assignee').value = '';
+    document.getElementById('step-instructions').value = '';
+    document.getElementById('step-modal-title').textContent = 'Add Step';
+    openModal('step-modal');
+  }
+
+  function openEditStep(stepId) {
+    const step = steps.find(s => s._id === stepId);
+    if (!step) return;
+    document.getElementById('step-edit-id').value = step._id;
+    document.getElementById('step-name').value = step.name;
+    document.getElementById('step-type').value = step.step_type;
+    document.getElementById('step-assignee').value = step.metadata?.assignee_email || '';
+    document.getElementById('step-instructions').value = step.metadata?.instructions || '';
+    document.getElementById('step-modal-title').textContent = 'Edit Step';
+    openModal('step-modal');
+  }
+
+  async function saveStep() {
+    const name = document.getElementById('step-name').value.trim();
+    const step_type = document.getElementById('step-type').value;
+    if (!name) { showToast('Step name required', 'error'); return; }
+
+    const payload = {
+      name,
+      step_type,
+      order: steps.length + 1,
+      metadata: {
+        assignee_email: document.getElementById('step-assignee').value.trim(),
+        instructions: document.getElementById('step-instructions').value.trim()
+      }
+    };
+
+    try {
+      const editId = document.getElementById('step-edit-id').value;
+      if (editId) {
+        await API.put(`/steps/${editId}`, payload);
+        showToast('Step updated', 'success');
+      } else {
+        await API.post(`/workflows/${workflowId}/steps`, payload);
+        showToast('Step added', 'success');
+      }
+      closeModal('step-modal');
+      await reloadSteps();
+    } catch(e) {
+      showToast(e.message, 'error');
+    }
+  }
+
+  function promptDelStep(id, name) {
+    delStepId = id;
+    document.getElementById('del-step-name').textContent = name;
+    openModal('del-step-modal');
+  }
+
+  document.getElementById('confirm-del-step').onclick = async () => {
+    try {
+      await API.delete(`/steps/${delStepId}`);
+      closeModal('del-step-modal');
+      showToast('Step deleted', 'success');
+      await reloadSteps();
+    } catch(e) { showToast(e.message, 'error'); }
+    delStepId = null;
+  };
+
+  async function reloadSteps() {
+    const res = await API.get(`/workflows/${workflowId}/steps`);
+    steps = res.data || [];
+    allSteps = [...steps];
+    renderSteps();
+  }
+
+  // ---- Rules ----
+  async function openRulesModal(stepId, stepName) {
+    rulesStepId = stepId;
+    rulesStepName = stepName;
+    document.getElementById('rules-step-name').textContent = stepName;
+    document.getElementById('rule-form-area').style.display = 'none';
+    await loadRules();
+    // Populate next-step dropdown
+    const sel = document.getElementById('rule-next-step');
+    sel.innerHTML = '<option value="">— End Workflow —</option>';
+    allSteps.filter(s => s._id !== stepId).forEach(s => {
+      sel.innerHTML += `<option value="${s._id}">${s.name}</option>`;
+    });
+    openModal('rules-modal');
+  }
+
+  async function loadRules() {
+    const res = await API.get(`/steps/${rulesStepId}/rules`);
+    const rules = res.data || [];
+    const area = document.getElementById('rules-list-area');
+
+    if (rules.length === 0) {
+      area.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.85rem">No rules yet. Add a DEFAULT rule at minimum.</div>`;
+      return;
+    }
+
+    area.innerHTML = rules.map(rule => {
+      const isDefault = rule.condition.trim().toUpperCase() === 'DEFAULT';
+      const nextStep = allSteps.find(s => s._id === rule.next_step_id);
+      return `
+      <div style="display:grid;grid-template-columns:60px 1fr 160px auto;gap:8px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface)">
+        <span class="rule-priority-badge">${rule.priority}</span>
+        <span class="${isDefault?'rule-condition default-rule':'rule-condition'}">${rule.condition}</span>
+        <span style="font-size:0.82rem;font-weight:500">${nextStep ? nextStep.name : '<span style="color:var(--text-muted)">End Workflow</span>'}</span>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-ghost btn-sm" onclick="openEditRuleForm('${rule._id}','${rule.condition.replace(/'/g,"\\'")}','${rule.next_step_id||''}',${rule.priority})">✏</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteRule('${rule._id}')">🗑</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function openAddRuleForm() {
+    editRuleId = null;
+    document.getElementById('rule-form-title').textContent = 'Add Rule';
+    document.getElementById('rule-edit-id').value = '';
+    document.getElementById('rule-condition').value = '';
+    document.getElementById('rule-next-step').value = '';
+    document.getElementById('rule-priority').value = 1;
+    document.getElementById('rule-form-area').style.display = 'block';
+  }
+
+  function openEditRuleForm(id, condition, nextStepId, priority) {
+    editRuleId = id;
+    document.getElementById('rule-form-title').textContent = 'Edit Rule';
+    document.getElementById('rule-edit-id').value = id;
+    document.getElementById('rule-condition').value = condition;
+    document.getElementById('rule-next-step').value = nextStepId || '';
+    document.getElementById('rule-priority').value = priority;
+    document.getElementById('rule-form-area').style.display = 'block';
+  }
+
+  function closeRuleForm() {
+    document.getElementById('rule-form-area').style.display = 'none';
+    editRuleId = null;
+  }
+
+  async function saveRule() {
+    const condition = document.getElementById('rule-condition').value.trim();
+    if (!condition) { showToast('Condition is required', 'error'); return; }
+
+    const payload = {
+      condition,
+      next_step_id: document.getElementById('rule-next-step').value || null,
+      priority: parseInt(document.getElementById('rule-priority').value) || 1
+    };
+
+    try {
+      const editId = document.getElementById('rule-edit-id').value;
+      if (editId) {
+        await API.put(`/rules/${editId}`, payload);
+        showToast('Rule updated', 'success');
+      } else {
+        await API.post(`/steps/${rulesStepId}/rules`, payload);
+        showToast('Rule added', 'success');
+      }
+      closeRuleForm();
+      await loadRules();
+      await reloadSteps(); // Update rule count
+    } catch(e) {
+      showToast(e.message, 'error');
+    }
+  }
+
+  async function deleteRule(id) {
+    if (!confirm('Delete this rule?')) return;
+    try {
+      await API.delete(`/rules/${id}`);
+      showToast('Rule deleted', 'success');
+      await loadRules();
+      await reloadSteps();
+    } catch(e) { showToast(e.message, 'error'); }
+  }
+</script>
+</body>
+</html>

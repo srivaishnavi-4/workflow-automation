@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audit Log</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="main-content">
+  <header class="topbar">
+    <span class="topbar-title">Audit Log</span>
+    <a href="/" class="btn btn-ghost btn-sm">← Dashboard</a>
+  </header>
+
+  <div class="page-body">
+    <!-- Summary Stats -->
+    <div class="stat-grid" style="margin-bottom:24px">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#dbeafe">
+          <svg fill="none" stroke="#2563eb" stroke-width="2" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>
+        </div>
+        <div><div class="stat-val" id="st-total">—</div><div class="stat-lbl">Total Executions</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#d1fae5">
+          <svg fill="none" stroke="#059669" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <div><div class="stat-val" id="st-completed">—</div><div class="stat-lbl">Completed</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#fee2e2">
+          <svg fill="none" stroke="#dc2626" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </div>
+        <div><div class="stat-val" id="st-failed">—</div><div class="stat-lbl">Failed</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#fef3c7">
+          <svg fill="none" stroke="#d97706" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+        </div>
+        <div><div class="stat-val" id="st-running">—</div><div class="stat-lbl">In Progress</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Execution History</span>
+        <button class="btn btn-outline btn-sm" onclick="loadExecutions()">⟳ Refresh</button>
+      </div>
+
+      <div class="search-bar">
+        <select class="form-control" id="status-filter" style="width:160px" onchange="loadExecutions(1)">
+          <option value="">All Statuses</option>
+          <option value="in_progress">In Progress</option>
+          <option value="completed">Completed</option>
+          <option value="failed">Failed</option>
+          <option value="canceled">Canceled</option>
+          <option value="pending">Pending</option>
+        </select>
+        <button class="btn btn-outline btn-sm" onclick="loadExecutions(1)">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Refresh
+        </button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Execution ID</th>
+              <th>Workflow</th>
+              <th>Version</th>
+              <th>Status</th>
+              <th>Steps Done</th>
+              <th>Triggered By</th>
+              <th>Start Time</th>
+              <th>End Time</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="exec-tbody">
+            <tr><td colspan="9"><div class="loading-overlay"><div class="spinner"></div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pagination" id="pagination"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/app.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>
+  let currentPage = 1;
+
+  async function loadStats() {
+    try {
+      const res = await API.get('/executions?limit=10000');
+      const all = res.data || [];
+      document.getElementById('st-total').textContent = res.total || all.length;
+      document.getElementById('st-completed').textContent = all.filter(e => e.status === 'completed').length;
+      document.getElementById('st-failed').textContent = all.filter(e => e.status === 'failed').length;
+      document.getElementById('st-running').textContent = all.filter(e => e.status === 'in_progress' || e.status === 'pending').length;
+    } catch(e) {}
+  }
+
+  async function loadExecutions(page = 1) {
+    currentPage = page;
+    const status = document.getElementById('status-filter').value;
+    const tbody = document.getElementById('exec-tbody');
+    tbody.innerHTML = '<tr><td colspan="9"><div class="loading-overlay"><div class="spinner"></div></div></td></tr>';
+
+    try {
+      const res = await API.get(`/executions?page=${page}&limit=10&status=${status}`);
+      const executions = res.data || [];
+
+      if (executions.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 6h16M4 10h16M4 14h8M4 18h8"/></svg>
+          <h4>No executions found</h4>
+          <p>Run a workflow to see execution history here</p>
+        </div></td></tr>`;
+        document.getElementById('pagination').innerHTML = '';
+        return;
+      }
+
+      tbody.innerHTML = executions.map(exec => `
+        <tr>
+          <td><span style="font-family:monospace;font-size:0.78rem;color:var(--text-muted)">${shortId(exec._id)}</span></td>
+          <td><span style="font-weight:600">${exec.workflow_name || '—'}</span></td>
+          <td><span style="font-size:0.82rem;font-weight:600">v${exec.workflow_version}</span></td>
+          <td>${statusBadge(exec.status)}</td>
+          <td>
+            <span style="background:#f1f5f9;padding:2px 8px;border-radius:99px;font-size:0.8rem;font-weight:600">
+              ${exec.logs ? exec.logs.length : 0} steps
+            </span>
+          </td>
+          <td style="font-size:0.83rem">${exec.triggered_by || '—'}</td>
+          <td style="font-size:0.8rem;color:var(--text-muted)">${fmtDate(exec.started_at)}</td>
+          <td style="font-size:0.8rem;color:var(--text-muted)">${fmtDate(exec.ended_at)}</td>
+          <td>
+            <a href="/executions/${exec._id}" class="btn btn-outline btn-sm">View Logs</a>
+          </td>
+        </tr>
+      `).join('');
+
+      renderPagination(page, res.total, 10);
+    } catch(e) {
+      tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><h4>Error loading executions</h4><p>${e.message}</p></div></td></tr>`;
+    }
+  }
+
+  function renderPagination(current, total, limit) {
+    const pages = Math.ceil(total / limit);
+    const el = document.getElementById('pagination');
+    if (pages <= 1) { el.innerHTML = ''; return; }
+    let html = `<button class="page-btn" ${current===1?'disabled':''} onclick="loadExecutions(${current-1})">←</button>`;
+    for (let i = 1; i <= pages; i++) {
+      html += `<button class="page-btn ${i===current?'active':''}" onclick="loadExecutions(${i})">${i}</button>`;
+    }
+    html += `<button class="page-btn" ${current===pages?'disabled':''} onclick="loadExecutions(${current+1})">→</button>`;
+    el.innerHTML = html;
+  }
+
+  // Auto-refresh for in-progress executions
+  setInterval(async () => {
+    const statusFilter = document.getElementById('status-filter').value;
+    if (!statusFilter || statusFilter === 'in_progress') {
+      await loadExecutions(currentPage);
+      await loadStats();
+    }
+  }, 5000);
+
+  loadStats();
+  loadExecutions();
+</script>
+</body>
+</html>

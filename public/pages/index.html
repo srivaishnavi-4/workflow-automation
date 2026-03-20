@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workflow Automation System</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <!-- Sidebar injected by sidebar.js -->
+  <div class="main-content">
+    <header class="topbar">
+      <span class="topbar-title">Workflow Dashboard</span>
+      <a href="/workflows/new" class="btn btn-primary btn-sm">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        New Workflow
+      </a>
+    </header>
+
+    <div class="page-body">
+      <!-- Stats -->
+      <div class="stat-grid" id="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#dbeafe;">
+            <svg fill="none" stroke="#2563eb" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+          </div>
+          <div>
+            <div class="stat-val" id="stat-total">—</div>
+            <div class="stat-lbl">Total Workflows</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#d1fae5;">
+            <svg fill="none" stroke="#059669" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+          </div>
+          <div>
+            <div class="stat-val" id="stat-active">—</div>
+            <div class="stat-lbl">Active Workflows</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#ede9fe;">
+            <svg fill="none" stroke="#7c3aed" stroke-width="2" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>
+          </div>
+          <div>
+            <div class="stat-val" id="stat-executions">—</div>
+            <div class="stat-lbl">Total Executions</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#fee2e2;">
+            <svg fill="none" stroke="#dc2626" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+          </div>
+          <div>
+            <div class="stat-val" id="stat-failed">—</div>
+            <div class="stat-lbl">Failed Executions</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Workflows Table -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">All Workflows</span>
+        </div>
+
+        <div class="search-bar">
+          <div class="search-input-wrap">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input type="text" class="search-input" id="search-input" placeholder="Search workflows...">
+          </div>
+          <select class="form-control" id="status-filter" style="width:150px">
+            <option value="">All Status</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          <button class="btn btn-outline btn-sm" onclick="loadWorkflows()">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            Refresh
+          </button>
+        </div>
+
+        <div class="table-wrap">
+          <table id="workflows-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Steps</th>
+                <th>Version</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="workflows-tbody">
+              <tr><td colspan="7"><div class="loading-overlay"><div class="spinner"></div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Confirm Modal -->
+  <div class="modal-overlay" id="delete-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title">Delete Workflow</span>
+        <button class="btn btn-ghost btn-icon" onclick="closeModal('delete-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to delete <strong id="delete-wf-name"></strong>? This will also delete all steps, rules, and cannot be undone.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal('delete-modal')">Cancel</button>
+        <button class="btn btn-danger" id="confirm-delete-btn">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script src="/js/app.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script>
+    let currentPage = 1;
+    let deleteTargetId = null;
+
+    async function loadStats() {
+      try {
+        const [wfRes, exRes] = await Promise.all([
+          API.get('/workflows?limit=1000'),
+          API.get('/executions?limit=1000')
+        ]);
+        const workflows = wfRes.data || [];
+        const executions = exRes.data || [];
+        document.getElementById('stat-total').textContent = wfRes.total || workflows.length;
+        document.getElementById('stat-active').textContent = workflows.filter(w => w.is_active).length;
+        document.getElementById('stat-executions').textContent = exRes.total || executions.length;
+        document.getElementById('stat-failed').textContent = executions.filter(e => e.status === 'failed').length;
+      } catch(e) {}
+    }
+
+    async function loadWorkflows(page = 1) {
+      currentPage = page;
+      const search = document.getElementById('search-input').value;
+      const status = document.getElementById('status-filter').value;
+
+      const tbody = document.getElementById('workflows-tbody');
+      tbody.innerHTML = '<tr><td colspan="7"><div class="loading-overlay"><div class="spinner"></div></div></td></tr>';
+
+      try {
+        const res = await API.get(`/workflows?search=${encodeURIComponent(search)}&page=${page}&limit=10&status=${status}`);
+        const workflows = res.data || [];
+
+        if (workflows.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+            <h4>No workflows found</h4>
+            <p>Create your first workflow to get started</p>
+            <a href="/workflows/new" class="btn btn-primary btn-sm" style="margin-top:12px">+ New Workflow</a>
+          </div></td></tr>`;
+          document.getElementById('pagination').innerHTML = '';
+          return;
+        }
+
+        tbody.innerHTML = workflows.map(wf => `
+          <tr>
+            <td><span style="font-family:monospace;font-size:0.78rem;color:var(--text-muted)">${shortId(wf._id)}</span></td>
+            <td>
+              <div style="font-weight:600">${wf.name}</div>
+              ${wf.description ? `<div style="font-size:0.78rem;color:var(--text-muted)">${truncate(wf.description, 50)}</div>` : ''}
+            </td>
+            <td><span style="background:#f1f5f9;padding:2px 10px;border-radius:99px;font-size:0.8rem;font-weight:600">${wf.step_count || 0}</span></td>
+            <td><span style="font-weight:600">v${wf.version}</span></td>
+            <td>${wf.is_active ? '<span class="badge badge-active">Active</span>' : '<span class="badge badge-inactive">Inactive</span>'}</td>
+            <td style="font-size:0.82rem;color:var(--text-muted)">${fmtDate(wf.created_at)}</td>
+            <td>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <a href="/workflows/${wf._id}/edit" class="btn btn-outline btn-sm">Edit</a>
+                <a href="/workflows/${wf._id}/execute" class="btn btn-primary btn-sm">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>
+                  Execute
+                </a>
+                <button class="btn btn-ghost btn-sm" onclick="promptDelete('${wf._id}','${wf.name.replace(/'/g,"\\'")}')">
+                  <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+        `).join('');
+
+        renderPagination(page, res.total, 10);
+      } catch(e) {
+        tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><h4>Error loading workflows</h4><p>${e.message}</p></div></td></tr>`;
+      }
+    }
+
+    function renderPagination(current, total, limit) {
+      const pages = Math.ceil(total / limit);
+      const el = document.getElementById('pagination');
+      if (pages <= 1) { el.innerHTML = ''; return; }
+
+      let html = `<button class="page-btn" ${current===1?'disabled':''} onclick="loadWorkflows(${current-1})">←</button>`;
+      for (let i = 1; i <= pages; i++) {
+        html += `<button class="page-btn ${i===current?'active':''}" onclick="loadWorkflows(${i})">${i}</button>`;
+      }
+      html += `<button class="page-btn" ${current===pages?'disabled':''} onclick="loadWorkflows(${current+1})">→</button>`;
+      el.innerHTML = html;
+    }
+
+    function promptDelete(id, name) {
+      deleteTargetId = id;
+      document.getElementById('delete-wf-name').textContent = name;
+      openModal('delete-modal');
+    }
+
+    document.getElementById('confirm-delete-btn').onclick = async () => {
+      if (!deleteTargetId) return;
+      try {
+        await API.delete(`/workflows/${deleteTargetId}`);
+        closeModal('delete-modal');
+        showToast('Workflow deleted', 'success');
+        loadWorkflows(currentPage);
+        loadStats();
+      } catch(e) {
+        showToast(e.message, 'error');
+      }
+      deleteTargetId = null;
+    };
+
+    let searchTimeout;
+    document.getElementById('search-input').addEventListener('input', () => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => loadWorkflows(1), 350);
+    });
+    document.getElementById('status-filter').addEventListener('change', () => loadWorkflows(1));
+
+    // Init
+    loadStats();
+    loadWorkflows();
+  </script>
+</body>
+</html>

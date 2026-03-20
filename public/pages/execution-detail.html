@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Execution Details</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="main-content">
+  <header class="topbar">
+    <div style="display:flex;align-items:center;gap:12px">
+      <a href="/executions" class="btn btn-ghost btn-sm">← Audit Log</a>
+      <span class="topbar-title">Execution Details</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span id="exec-status-badge"></span>
+      <button class="btn btn-outline btn-sm" onclick="loadExecution()">⟳ Refresh</button>
+      <button class="btn btn-warning btn-sm" id="cancel-btn" onclick="cancelExecution()" style="display:none">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="retry-btn" onclick="retryExecution()" style="display:none">Retry</button>
+    </div>
+  </header>
+
+  <div class="page-body">
+    <div id="loading-state" class="loading-overlay"><div class="spinner"></div></div>
+
+    <div id="content" style="display:none">
+      <!-- Top Summary -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+
+        <!-- Execution Info -->
+        <div class="card">
+          <div class="card-title" style="margin-bottom:16px">Execution Info</div>
+          <table style="width:100%">
+            <tbody>
+              <tr>
+                <td style="padding:6px 0;font-size:0.82rem;color:var(--text-muted);width:120px">Execution ID</td>
+                <td style="padding:6px 0;font-family:monospace;font-size:0.8rem" id="info-id"></td>
+              </tr>
+              <tr>
+                <td style="padding:6px 0;font-size:0.82rem;color:var(--text-muted)">Workflow</td>
+                <td style="padding:6px 0;font-weight:600" id="info-wf"></td>
+              </tr>
+              <tr>
+                <td style="padding:6px 0;font-size:0.82rem;color:var(--text-muted)">Version</td>
+                <td style="padding:6px 0" id="info-version"></td>
+              </tr>
+              <tr>
+                <td style="padding:6px 0;font-size:0.82rem;color:var(--text-muted)">Status</td>
+                <td style="padding:6px 0" id="info-status"></td>
+              </tr>
+              <tr>
+                <td style="padding:6px 0;font-size:0.82rem;color:var(--text-muted)">Triggered By</td>
+                <td style="padding:6px 0" id="info-triggered"></td>
+              </tr>
+              <tr>
+                <td style="padding:6px 0;font-size:0.82rem;color:var(--text-muted)">Started At</td>
+                <td style="padding:6px 0;font-size:0.82rem" id="info-started"></td>
+              </tr>
+              <tr>
+                <td style="padding:6px 0;font-size:0.82rem;color:var(--text-muted)">Ended At</td>
+                <td style="padding:6px 0;font-size:0.82rem" id="info-ended"></td>
+              </tr>
+              <tr>
+                <td style="padding:6px 0;font-size:0.82rem;color:var(--text-muted)">Duration</td>
+                <td style="padding:6px 0;font-size:0.82rem" id="info-duration"></td>
+              </tr>
+              <tr>
+                <td style="padding:6px 0;font-size:0.82rem;color:var(--text-muted)">Retries</td>
+                <td style="padding:6px 0" id="info-retries"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Input Data -->
+        <div class="card">
+          <div class="card-title" style="margin-bottom:16px">Input Data</div>
+          <pre id="input-data" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:0.82rem;overflow-x:auto;white-space:pre-wrap;word-break:break-all"></pre>
+          <div style="margin-top:12px">
+            <div style="font-size:0.78rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Progress</div>
+            <div style="background:var(--border);border-radius:99px;height:8px">
+              <div id="progress-bar" style="height:8px;border-radius:99px;transition:width 0.5s;background:var(--primary)"></div>
+            </div>
+            <div style="font-size:0.78rem;color:var(--text-muted);margin-top:4px" id="progress-label"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step Logs Timeline -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Step Execution Logs</span>
+          <span id="steps-count-badge" style="font-size:0.82rem;color:var(--text-muted)"></span>
+        </div>
+        <div id="logs-container"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/app.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>
+  let executionId = null;
+  let pollInterval = null;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const path = window.location.pathname;
+    const match = path.match(/\/executions\/([^/]+)/);
+    if (!match) return;
+    executionId = match[1];
+    loadExecution();
+  });
+
+  async function loadExecution() {
+    try {
+      const res = await API.get(`/executions/${executionId}`);
+      renderExecution(res.data);
+      document.getElementById('loading-state').style.display = 'none';
+      document.getElementById('content').style.display = 'block';
+
+      if (['in_progress', 'pending'].includes(res.data.status)) {
+        if (!pollInterval) {
+          pollInterval = setInterval(async () => {
+            const r = await API.get(`/executions/${executionId}`);
+            renderExecution(r.data);
+            if (!['in_progress', 'pending'].includes(r.data.status)) {
+              clearInterval(pollInterval);
+              pollInterval = null;
+            }
+          }, 2000);
+        }
+      }
+    } catch(e) {
+      document.getElementById('loading-state').innerHTML = `<div class="empty-state"><h4>Error loading execution</h4><p>${e.message}</p></div>`;
+    }
+  }
+
+  function renderExecution(exec) {
+    document.getElementById('exec-status-badge').innerHTML = statusBadge(exec.status);
+    document.getElementById('info-id').textContent = exec._id;
+    document.getElementById('info-wf').textContent = exec.workflow_name || exec.workflow_id;
+    document.getElementById('info-version').innerHTML = `<span style="font-weight:600">v${exec.workflow_version}</span>`;
+    document.getElementById('info-status').innerHTML = statusBadge(exec.status);
+    document.getElementById('info-triggered').textContent = exec.triggered_by || '—';
+    document.getElementById('info-started').textContent = fmtDate(exec.started_at);
+    document.getElementById('info-ended').textContent = fmtDate(exec.ended_at);
+    document.getElementById('info-duration').textContent = fmtDuration(exec.started_at, exec.ended_at);
+    document.getElementById('info-retries').textContent = exec.retries || 0;
+    document.getElementById('input-data').textContent = JSON.stringify(exec.data || {}, null, 2);
+
+    const logs = exec.logs || [];
+    document.getElementById('steps-count-badge').textContent = `${logs.length} step(s) executed`;
+
+    // Progress
+    const progressBar = document.getElementById('progress-bar');
+    const progressLabel = document.getElementById('progress-label');
+    const pct = logs.length > 0 ? Math.min(100, (logs.length / Math.max(logs.length, 1)) * 100) : 0;
+    progressBar.style.width = (exec.status === 'completed' ? 100 : pct) + '%';
+    if (exec.status === 'completed') progressBar.style.background = 'var(--success)';
+    else if (exec.status === 'failed') progressBar.style.background = 'var(--danger)';
+    progressLabel.textContent = exec.status === 'completed' ? 'Completed' :
+      exec.status === 'failed' ? 'Failed' :
+      exec.status === 'canceled' ? 'Canceled' :
+      `${logs.length} step(s) completed`;
+
+    // Buttons
+    document.getElementById('cancel-btn').style.display = ['in_progress','pending'].includes(exec.status) ? 'inline-flex' : 'none';
+    document.getElementById('retry-btn').style.display = exec.status === 'failed' ? 'inline-flex' : 'none';
+
+    // Logs
+    renderLogs(logs);
+  }
+
+  function renderLogs(logs) {
+    const container = document.getElementById('logs-container');
+    if (!logs.length) {
+      container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">No steps executed yet. Waiting for execution to start...</div>';
+      return;
+    }
+
+    container.innerHTML = `<div class="exec-timeline">` + logs.map((log, i) => {
+      const statusColors = { completed: 'var(--success)', failed: 'var(--danger)', in_progress: 'var(--primary)', pending: 'var(--warning)' };
+      const color = statusColors[log.status] || 'var(--text-muted)';
+      const icon = log.status === 'completed' ? '✓' : log.status === 'failed' ? '✕' : '⟳';
+
+      const evalHtml = (log.evaluated_rules || []).map((r, ri) => `
+        <div class="rule-chip">
+          <span class="chip-result ${r.result ? 'chip-true' : 'chip-false'}">${r.result ? '✓' : '✕'}</span>
+          <div style="flex:1">
+            <div style="font-family:monospace;font-size:0.78rem;word-break:break-all">${r.rule}</div>
+          </div>
+          <span style="font-size:0.72rem;font-weight:700;color:${r.result?'var(--success)':'var(--danger)'}">${r.result ? 'MATCH' : 'NO MATCH'}</span>
+        </div>
+      `).join('');
+
+      return `
+      <div class="timeline-item">
+        <div class="timeline-dot" style="background:${color}20;color:${color};border:2px solid ${color}">
+          <span style="font-size:0.7rem;font-weight:700">${icon}</span>
+        </div>
+        <div style="padding-left:16px">
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+            <div style="padding:14px 18px;cursor:pointer;display:flex;align-items:center;gap:12px" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.arrow-icon').textContent=this.nextElementSibling.classList.contains('open')?'▴':'▾'">
+              <div style="width:24px;height:24px;border-radius:50%;background:${color}20;color:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.8rem;flex-shrink:0">${icon}</div>
+              <div style="flex:1">
+                <div style="font-weight:700;font-size:0.9rem">[Step ${i+1}] ${log.step_name}</div>
+                <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap">${typeBadge(log.step_type)} ${statusBadge(log.status)}</div>
+              </div>
+              <div style="text-align:right;font-size:0.78rem;color:var(--text-muted)">
+                <div>Duration: <strong>${fmtDuration(log.started_at, log.ended_at)}</strong></div>
+                ${log.selected_next_step ? `<div style="margin-top:2px">→ ${log.selected_next_step}</div>` : ''}
+              </div>
+              <span class="arrow-icon" style="color:var(--text-muted)">▾</span>
+            </div>
+            <div class="exec-step-body" style="border-top:1px solid var(--border)">
+              ${log.error_message ? `<div style="background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:0.85rem">⚠ Error: ${log.error_message}</div>` : ''}
+
+              ${log.evaluated_rules && log.evaluated_rules.length > 0 ? `
+              <div style="margin-bottom:12px">
+                <div style="font-size:0.78rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Rule Evaluation</div>
+                ${evalHtml}
+              </div>` : '<div style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px">No rules evaluated for this step.</div>'}
+
+              ${log.selected_next_step ? `
+              <div style="background:#dbeafe;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;font-size:0.85rem;color:#1e40af;margin-bottom:12px">
+                <strong>Selected Next Step:</strong> ${log.selected_next_step}
+              </div>` : (log.status === 'completed' ? `
+              <div style="background:#d1fae5;border:1px solid #a7f3d0;border-radius:8px;padding:10px 14px;font-size:0.85rem;color:#065f46;margin-bottom:12px">
+                ✓ Workflow ended after this step
+              </div>` : '')}
+
+              <div style="display:flex;gap:24px;font-size:0.78rem;color:var(--text-muted);margin-top:8px">
+                <span><strong>Started:</strong> ${fmtDate(log.started_at)}</span>
+                <span><strong>Ended:</strong> ${fmtDate(log.ended_at)}</span>
+                ${log.approver_id ? `<span><strong>Approver:</strong> ${log.approver_id}</span>` : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }).join('') + `</div>`;
+  }
+
+  async function cancelExecution() {
+    try {
+      await API.post(`/executions/${executionId}/cancel`);
+      showToast('Execution canceled', 'info');
+      await loadExecution();
+    } catch(e) { showToast(e.message, 'error'); }
+  }
+
+  async function retryExecution() {
+    try {
+      await API.post(`/executions/${executionId}/retry`);
+      showToast('Retry started', 'success');
+      if (!pollInterval) {
+        pollInterval = setInterval(async () => {
+          const r = await API.get(`/executions/${executionId}`);
+          renderExecution(r.data);
+          if (!['in_progress', 'pending'].includes(r.data.status)) {
+            clearInterval(pollInterval); pollInterval = null;
+          }
+        }, 2000);
+      }
+    } catch(e) { showToast(e.message, 'error'); }
+  }
+</script>
+</body>
+</html>

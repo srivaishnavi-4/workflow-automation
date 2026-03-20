@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Execute Workflow</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="main-content">
+  <header class="topbar">
+    <div style="display:flex;align-items:center;gap:12px">
+      <a href="/" class="btn btn-ghost btn-sm">← Back</a>
+      <span class="topbar-title" id="page-title">Execute Workflow</span>
+    </div>
+    <span id="wf-version-badge" style="font-size:0.8rem;color:var(--text-muted)"></span>
+  </header>
+
+  <div class="page-body">
+    <div style="display:grid;grid-template-columns:420px 1fr;gap:24px;align-items:start" id="exec-grid">
+
+      <!-- LEFT: Input Form -->
+      <div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Input Data</span>
+          </div>
+          <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:16px">
+            Fill in the fields required to start this workflow execution.
+          </p>
+          <div id="input-form">
+            <div class="loading-overlay"><div class="spinner"></div></div>
+          </div>
+          <div style="margin-top:16px">
+            <div class="form-group" style="margin-bottom:12px">
+              <label class="form-label">Triggered By</label>
+              <input type="text" class="form-control" id="triggered-by" value="user123" placeholder="User ID or name">
+            </div>
+            <button class="btn btn-primary" style="width:100%" onclick="startExecution()" id="exec-btn" disabled>
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>
+              Start Execution
+            </button>
+          </div>
+        </div>
+
+        <!-- Workflow Info -->
+        <div class="card" style="margin-top:16px" id="wf-info-card" style="display:none">
+          <div class="card-title" style="margin-bottom:12px">Workflow Steps</div>
+          <div id="wf-steps-preview"></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Execution Progress -->
+      <div>
+        <!-- Pre-execution placeholder -->
+        <div id="exec-placeholder" class="card" style="text-align:center;padding:60px 20px">
+          <div style="font-size:3rem;margin-bottom:16px">⚡</div>
+          <h3 style="font-family:'Syne',sans-serif;margin-bottom:8px">Ready to Execute</h3>
+          <p style="color:var(--text-muted);font-size:0.88rem">Fill in the input fields and click "Start Execution" to run the workflow.</p>
+        </div>
+
+        <!-- Execution Status Panel -->
+        <div id="exec-panel" style="display:none">
+          <div class="card" style="margin-bottom:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+              <div>
+                <div class="card-title">Execution Status</div>
+                <div style="font-family:monospace;font-size:0.78rem;color:var(--text-muted);margin-top:3px" id="exec-id-display"></div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <span id="exec-status-badge"></span>
+                <button class="btn btn-outline btn-sm" id="cancel-btn" onclick="cancelExecution()" style="display:none">Cancel</button>
+                <button class="btn btn-warning btn-sm" id="retry-btn" onclick="retryExecution()" style="display:none">Retry</button>
+              </div>
+            </div>
+
+            <!-- Progress bar -->
+            <div style="background:var(--border);border-radius:99px;height:6px;margin-bottom:12px">
+              <div id="progress-bar" style="background:var(--primary);height:6px;border-radius:99px;width:0%;transition:width 0.5s"></div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:0.82rem">
+              <div><span style="color:var(--text-muted)">Started</span><div id="exec-started" style="font-weight:500;margin-top:2px">—</div></div>
+              <div><span style="color:var(--text-muted)">Ended</span><div id="exec-ended" style="font-weight:500;margin-top:2px">—</div></div>
+              <div><span style="color:var(--text-muted)">Retries</span><div id="exec-retries" style="font-weight:500;margin-top:2px">0</div></div>
+            </div>
+          </div>
+
+          <!-- Step Logs -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Execution Logs</span>
+              <button class="btn btn-ghost btn-sm" onclick="pollExecution()">⟳ Refresh</button>
+            </div>
+            <div id="exec-logs">
+              <div class="loading-overlay"><div class="spinner"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/app.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>
+  let workflowId = null;
+  let workflowData = null;
+  let executionId = null;
+  let pollInterval = null;
+  let inputValues = {};
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    const path = window.location.pathname;
+    const match = path.match(/\/workflows\/([^/]+)\/execute/);
+    if (!match) { showToast('Invalid URL', 'error'); return; }
+    workflowId = match[1];
+    await loadWorkflow();
+  });
+
+  async function loadWorkflow() {
+    try {
+      const res = await API.get(`/workflows/${workflowId}`);
+      workflowData = res.data;
+      document.getElementById('page-title').textContent = `Execute: ${workflowData.name}`;
+      document.getElementById('wf-version-badge').textContent = `v${workflowData.version}`;
+
+      renderInputForm();
+      renderStepsPreview();
+      document.getElementById('exec-btn').disabled = false;
+    } catch(e) {
+      showToast('Failed to load workflow: ' + e.message, 'error');
+    }
+  }
+
+  function renderInputForm() {
+    const schema = workflowData.input_schema || {};
+    const form = document.getElementById('input-form');
+
+    if (Object.keys(schema).length === 0) {
+      form.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;text-align:center;padding:16px">This workflow has no required input fields.</p>';
+      return;
+    }
+
+    form.innerHTML = Object.entries(schema).map(([field, config]) => {
+      const isRequired = config.required;
+      const label = `${field.replace(/_/g, ' ')}${isRequired ? ' <span class="required">*</span>' : ''}`;
+
+      if (config.allowed_values && config.allowed_values.length > 0) {
+        return `
+          <div class="form-group">
+            <label class="form-label">${label}</label>
+            <select class="form-control" id="input-${field}" onchange="inputValues['${field}']=this.value">
+              <option value="">Select ${field}...</option>
+              ${config.allowed_values.map(v => `<option value="${v}">${v}</option>`).join('')}
+            </select>
+          </div>`;
+      }
+
+      const inputType = config.type === 'number' ? 'number' : 'text';
+      return `
+        <div class="form-group">
+          <label class="form-label">${label}</label>
+          <input type="${inputType}" class="form-control" id="input-${field}"
+            placeholder="Enter ${field}..."
+            oninput="inputValues['${field}']=${config.type==='number'?'parseFloat(this.value)||this.value':'this.value'}">
+          <div class="form-hint">${config.type}${isRequired ? '' : ' (optional)'}</div>
+        </div>`;
+    }).join('');
+  }
+
+  function renderStepsPreview() {
+    const steps = workflowData.steps || [];
+    const container = document.getElementById('wf-steps-preview');
+    document.getElementById('wf-info-card').style.display = 'block';
+
+    if (!steps.length) {
+      container.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem">No steps defined.</p>';
+      return;
+    }
+
+    container.innerHTML = steps.map((step, i) => `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;${i < steps.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
+        <span class="step-order-badge" style="font-size:0.72rem">${step.order || i+1}</span>
+        <div style="flex:1">
+          <div style="font-size:0.85rem;font-weight:600">${step.name}</div>
+          <div style="margin-top:2px">${typeBadge(step.step_type)}</div>
+        </div>
+        <span style="font-size:0.75rem;color:var(--text-muted)">${step.rules ? step.rules.length : 0} rules</span>
+      </div>
+    `).join('');
+  }
+
+  async function startExecution() {
+    // Validate required fields
+    const schema = workflowData.input_schema || {};
+    let valid = true;
+    for (const [field, config] of Object.entries(schema)) {
+      if (config.required && (inputValues[field] === undefined || inputValues[field] === '' || inputValues[field] === null)) {
+        showToast(`Field "${field}" is required`, 'error');
+        document.getElementById(`input-${field}`)?.classList.add('is-invalid');
+        valid = false;
+      } else {
+        document.getElementById(`input-${field}`)?.classList.remove('is-invalid');
+      }
+    }
+    if (!valid) return;
+
+    try {
+      document.getElementById('exec-btn').disabled = true;
+      document.getElementById('exec-btn').innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px"></div> Starting...';
+
+      const res = await API.post(`/workflows/${workflowId}/execute`, {
+        data: inputValues,
+        triggered_by: document.getElementById('triggered-by').value || 'user'
+      });
+
+      executionId = res.data._id;
+      showToast('Execution started!', 'success');
+      showExecutionPanel(res.data);
+      startPolling();
+    } catch(e) {
+      showToast('Execution failed: ' + e.message, 'error');
+      document.getElementById('exec-btn').disabled = false;
+      document.getElementById('exec-btn').innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg> Start Execution';
+    }
+  }
+
+  function showExecutionPanel(exec) {
+    document.getElementById('exec-placeholder').style.display = 'none';
+    document.getElementById('exec-panel').style.display = 'block';
+    document.getElementById('exec-id-display').textContent = 'ID: ' + exec._id;
+    updateExecutionUI(exec);
+  }
+
+  function updateExecutionUI(exec) {
+    document.getElementById('exec-status-badge').innerHTML = statusBadge(exec.status);
+    document.getElementById('exec-started').textContent = fmtDate(exec.started_at);
+    document.getElementById('exec-ended').textContent = fmtDate(exec.ended_at);
+    document.getElementById('exec-retries').textContent = exec.retries || 0;
+
+    const steps = workflowData.steps || [];
+    const logs = exec.logs || [];
+    const progressPct = steps.length > 0 ? Math.min(100, Math.round((logs.length / steps.length) * 100)) : 0;
+    const bar = document.getElementById('progress-bar');
+    bar.style.width = progressPct + '%';
+
+    if (exec.status === 'completed') {
+      bar.style.background = 'var(--success)';
+    } else if (exec.status === 'failed') {
+      bar.style.background = 'var(--danger)';
+    }
+
+    // Show cancel / retry buttons
+    document.getElementById('cancel-btn').style.display = ['in_progress', 'pending'].includes(exec.status) ? 'inline-flex' : 'none';
+    document.getElementById('retry-btn').style.display = exec.status === 'failed' ? 'inline-flex' : 'none';
+    document.getElementById('exec-btn').style.display = ['completed', 'failed', 'canceled'].includes(exec.status) ? 'none' : 'inline-flex';
+
+    renderLogs(exec.logs || []);
+  }
+
+  function renderLogs(logs) {
+    const container = document.getElementById('exec-logs');
+    if (logs.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted)">Waiting for steps to execute...</div>';
+      return;
+    }
+
+    container.innerHTML = logs.map((log, i) => {
+      const statusColors = {
+        completed: 'var(--success)',
+        failed: 'var(--danger)',
+        in_progress: 'var(--primary)',
+        pending: 'var(--warning)'
+      };
+      const statusIcons = {
+        completed: '✓', failed: '✕', in_progress: '⟳', pending: '…'
+      };
+      const color = statusColors[log.status] || 'var(--text-muted)';
+      const icon = statusIcons[log.status] || '?';
+
+      const evalRulesHtml = (log.evaluated_rules || []).map(r => `
+        <div class="rule-chip">
+          <span class="chip-result ${r.result ? 'chip-true' : 'chip-false'}">${r.result ? '✓' : '✕'}</span>
+          <span style="font-family:monospace;font-size:0.78rem;word-break:break-all">${r.rule}</span>
+        </div>
+      `).join('');
+
+      return `
+      <div class="exec-step">
+        <div class="exec-step-header" onclick="toggleStepLog(this)">
+          <div style="width:28px;height:28px;border-radius:50%;background:${color}20;color:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;flex-shrink:0">${icon}</div>
+          <div style="flex:1">
+            <div style="font-weight:600;font-size:0.9rem">${log.step_name}</div>
+            <div style="margin-top:3px">${typeBadge(log.step_type)} ${statusBadge(log.status)}</div>
+          </div>
+          <div style="text-align:right;font-size:0.78rem;color:var(--text-muted)">
+            <div>Duration: ${fmtDuration(log.started_at, log.ended_at)}</div>
+            ${log.selected_next_step ? `<div>→ ${log.selected_next_step}</div>` : ''}
+          </div>
+          <span style="color:var(--text-muted);font-size:0.9rem">▾</span>
+        </div>
+        <div class="exec-step-body">
+          ${log.error_message ? `<div style="background:#fee2e2;color:#991b1b;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:0.85rem">⚠ ${log.error_message}</div>` : ''}
+          ${log.approver_id ? `<div style="margin-bottom:10px;font-size:0.85rem"><strong>Approver:</strong> ${log.approver_id}</div>` : ''}
+          ${evalRulesHtml ? `
+            <div style="margin-bottom:4px;font-size:0.8rem;font-weight:600;color:var(--text-muted)">EVALUATED RULES</div>
+            ${evalRulesHtml}` : ''}
+          ${log.selected_next_step ? `
+            <div style="margin-top:10px;padding:8px 12px;background:#dbeafe;border-radius:8px;font-size:0.82rem;color:#1e40af">
+              <strong>Next Step:</strong> ${log.selected_next_step}
+            </div>` : ''}
+          <div style="display:flex;gap:20px;margin-top:10px;font-size:0.78rem;color:var(--text-muted)">
+            <span>Started: ${fmtDate(log.started_at)}</span>
+            <span>Ended: ${fmtDate(log.ended_at)}</span>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function toggleStepLog(header) {
+    const body = header.nextElementSibling;
+    body.classList.toggle('open');
+    const arrow = header.querySelector('span:last-child');
+    if (arrow) arrow.textContent = body.classList.contains('open') ? '▴' : '▾';
+  }
+
+  function startPolling() {
+    if (pollInterval) clearInterval(pollInterval);
+    pollInterval = setInterval(async () => {
+      await pollExecution();
+    }, 2000);
+  }
+
+  async function pollExecution() {
+    if (!executionId) return;
+    try {
+      const res = await API.get(`/executions/${executionId}`);
+      updateExecutionUI(res.data);
+      if (['completed', 'failed', 'canceled'].includes(res.data.status)) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+        document.getElementById('exec-btn').disabled = false;
+        document.getElementById('exec-btn').style.display = 'none';
+
+        if (res.data.status === 'completed') {
+          showToast('Workflow completed successfully!', 'success');
+        } else if (res.data.status === 'failed') {
+          showToast('Workflow execution failed', 'error');
+        }
+      }
+    } catch(e) {}
+  }
+
+  async function cancelExecution() {
+    if (!executionId) return;
+    try {
+      await API.post(`/executions/${executionId}/cancel`);
+      showToast('Execution canceled', 'info');
+      clearInterval(pollInterval);
+      await pollExecution();
+    } catch(e) { showToast(e.message, 'error'); }
+  }
+
+  async function retryExecution() {
+    if (!executionId) return;
+    try {
+      await API.post(`/executions/${executionId}/retry`);
+      showToast('Retry started from failed step', 'info');
+      startPolling();
+    } catch(e) { showToast(e.message, 'error'); }
+  }
+</script>
+</body>
+</html>
